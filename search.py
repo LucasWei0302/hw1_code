@@ -18,8 +18,11 @@ files and classes when code is run, so be careful to not modify anything else.
 # to the positions of the path taken by your search algorithm.
 # maze is a Maze object based on the maze from the file specified by input filename
 # searchMethod is the search method specified by --method flag (bfs,dfs,astar,astar_multi,fast)
+
 import heapq
+import math
 from collections import deque
+from itertools import combinations
 
 def search(maze, searchMethod):
     return {
@@ -29,39 +32,34 @@ def search(maze, searchMethod):
         "astar_multi": astar_multi,
         "fast": fast,
     }.get(searchMethod)(maze)
-from collections import deque
 
 def bfs(maze):
     """
-    Runs BFS to find the shortest path from the start position to each dot.
+    Runs BFS for part 1 of the assignment.
 
     @param maze: The maze to execute the search on.
 
-    @return paths: A dictionary where keys are goal positions and values are the shortest paths to those goals.
+    @return path: a list of tuples containing the coordinates of each state in the computed path
     """
-    start = maze.getStart()  
-    goals = set(maze.getObjectives())  
-    queue = deque([(start, [start])]) 
-    visited = set()  
-    parent = {}
-    path = {}
+    # TODO: Write your code here
+    start = maze.getStart()
+    queue = list()
+    queue.append((start, [start]))
+    visited = set()
+    visited.add(start)
 
-    # BFS loop
     while len(queue) > 0:
-        current, path = queue.popleft()  
-        
-        if current in goals: 
-            return path
+        cpos, cpath = queue.pop(0)
+        if maze.isObjective(cpos[0], cpos[1]):
+            return cpath
+        for nextpos in maze.getNeighbors(cpos[0], cpos[1]):
+            if nextpos not in visited:
+                nextpath = cpath.copy()
+                nextpath.append(nextpos)
+                queue.append((nextpos, nextpath))
+                visited.add(nextpos)
+    return []
 
-        if current in visited:
-            continue
-        visited.add(current)
-
-        # Explore neighbors
-        for neighbor in maze.getNeighbors(*current):
-            if neighbor not in visited:
-                queue.append((neighbor, path + [neighbor])) 
-    return []  
 
 def astar(maze):
     """
@@ -72,8 +70,31 @@ def astar(maze):
     @return path: a list of tuples containing the coordinates of each state in the computed path
     """
     # TODO: Write your code here
-    path = astar_multi(maze)
-    return path
+    start = maze.getStart()
+    food = maze.getObjectives()[0]
+
+    priority_queue = []
+    heapq.heappush(priority_queue, (0, 0, start, [start]))
+    searched = set()
+
+    while priority_queue:
+        fvalue, cost, cpos, path = heapq.heappop(priority_queue)
+
+        if cpos == food:
+            return path
+
+        if cpos in searched:
+            continue
+        searched.add(cpos)
+
+        for neighbor in maze.getNeighbors(cpos[0], cpos[1]):
+            if neighbor in searched:
+                continue
+            new_cost = cost + 1
+            h = manhattan(neighbor, food)
+            heapq.heappush(priority_queue, (new_cost + h, new_cost, neighbor, path + [neighbor]))
+
+    return []
 
 def astar_corner(maze):
     """
@@ -84,56 +105,49 @@ def astar_corner(maze):
     @return path: a list of tuples containing the coordinates of each state in the computed path
         """
     # TODO: Write your code here
-    path = astar_multi(maze)
-    return path
+    return astar_multi(maze)
 
-def manhattan_distance(dot_1 , dot_2):
-    return abs(dot_1[0] - dot_2[0]) + abs(dot_1[1] - dot_2[1])
+def manhattan(pos1, pos2):
+    return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
-def heuristic(remaining_dots):
-    """
-    Computes the Minimum Spanning Tree (MST) heuristic using Kruskal's algorithm.
-    
-    @param remaining_dots: List of remaining dot positions.
 
-    @return mst_cost: The minimum spanning tree cost (heuristic value).
-    """
-    if len(remaining_dots) == 0:
+
+def mst_cost(points):
+    if not points:
         return 0
-
-    dots = sorted(remaining_dots)
-
-    edges = []
-    for i in range(len(dots)):
-        for j in range(i + 1, len(dots)):
-            d1, d2 = dots[i], dots[j]
-            dist = manhattan_distance(d1 , d2)
-            edges.append((dist, d1, d2))
-
+    edges = [(manhattan(a, b), a, b) for a, b in combinations(points, 2)]
     edges.sort()
-  
-    parent = {}  
-    for dot in dots:  
-        parent[dot] = dot  
 
-    def find(x):
-        if parent[x] != x:
-            parent[x] = find(parent[x])
-        return parent[x]
-
-    def union(x, y):
-        root_x, root_y = find(x), find(y)
-        if root_x != root_y:
-            parent[root_y] = root_x
-            return True
-        return False
+    parents = {p: p for p in points}
+    def find(p):
+        if parents[p] != p:
+            parents[p] = find(parents[p])
+        return parents[p]
+    def union(p1, p2):
+        root1, root2 = find(p1), find(p2)
+        if root1 != root2:
+            parents[root2] = root1
 
     mst_cost = 0
-    for dist, d1, d2 in edges:
-        if union(d1, d2):  
-            mst_cost += dist
-
+    edge_count = 0
+    for cost, a, b in edges:
+        if find(a) != find(b):
+            union(a, b)
+            mst_cost += cost
+            edge_count += 1
+            if edge_count == len(points)-1:
+                break
     return mst_cost
+
+
+def heuristic(state):
+    cpos, unvisited = state
+    if not unvisited:
+        return 0
+    min_dist = min([manhattan(cpos, food) for food in unvisited])
+    return min_dist + mst_cost(unvisited)
+
+
 
 def astar_multi(maze):
     """
@@ -145,30 +159,43 @@ def astar_multi(maze):
     @return path: a list of tuples containing the coordinates of each state in the computed path
     """
     # TODO: Write your code here
-    start = maze.getStart()  
-    goals = set(maze.getObjectives()) 
-    queue = [(0, 0, start, [start], frozenset())]  
-    visited = set()
+    start = maze.getStart()
+    food_positions = set(maze.getObjectives())
 
-    while len(queue) > 0:
-        print(queue)
-        f , g, current, path, collected = heapq.heappop(queue)
-        print(f)
-        if collected == goals:
+    priority_queue = []
+    heapq.heappush(priority_queue, (0, 0, start, tuple(sorted(food_positions)), [start]))
+    searched = set()
+
+    while priority_queue:
+        fvalue, cost, cpos, unvisited, path = heapq.heappop(priority_queue)
+        if not unvisited:
             return path
-
-        state = (current, collected)
-        if state in visited:
+        state = (cpos, tuple(sorted(unvisited)))
+        if state in searched:
             continue
-        visited.add(state)
+        searched.add(state)
 
-        # Explore neighbors
-        for neighbor in maze.getNeighbors(*current):
-            new_collected = collected | ({neighbor} & goals)
-            h = heuristic(goals - new_collected) 
-            f_new = g + 1 + h  
-            heapq.heappush(queue, (f_new , g + 1, neighbor, path + [neighbor], new_collected))
+        for neighbor in maze.getNeighbors(cpos[0], cpos[1]):
+            new_food = tuple(sorted(set(unvisited) - {neighbor}))
+            new_cost = cost + 1
+            h = heuristic((neighbor, new_food))
+            heapq.heappush(priority_queue, (h + new_cost, new_cost, neighbor, new_food, path + [neighbor]))
 
+
+
+
+def nearest_food_path(maze, start, food_positions):
+    queue = [(start, [start])]
+    searched = set()
+    while queue:
+        cpos, cpath = queue.pop(0)
+        if cpos in food_positions:
+            return cpath
+        if cpos in searched:
+            continue
+        searched.add(cpos)
+        for neighbor in maze.getNeighbors(cpos[0], cpos[1]):
+            queue.append((neighbor, cpath + [neighbor]))
     return []
 
 def fast(maze):
@@ -181,39 +208,15 @@ def fast(maze):
     """
     # TODO: Write your code here
     start = maze.getStart()
-    goals = set(maze.getObjectives())
-    full_path = []
-    current_position = start
+    food_positions = maze.getObjectives()
+    path = []
 
-    while len(goals) > 0:
-        # Greedy Best-First Search (GBFS) for the nearest goal
-        queue = []
-        heapq.heappush(queue, (0, current_position, [current_position]))  # (h-score, position, current path)
-        visited = set()
-        found_goal = None  # Track the goal reached
+    while food_positions:
+        nearest_path = nearest_food_path(maze, start, food_positions)
+        if not nearest_path:
+            return path
+        path.extend(nearest_path[1:])
+        start = nearest_path[-1]
+        food_positions.remove(start)
+    return path
 
-        while len(queue) > 0:
-            empty , current, path = heapq.heappop(queue)
-
-            if current in goals:
-                found_goal = current
-                full_path.extend(path[:-1])  # Append path except last step to avoid duplicates
-                current_position = current
-                break  # Stop search and move to the next goal
-
-            if current in visited:
-                continue
-            visited.add(current)
-
-            for neighbor in maze.getNeighbors(*current):
-                if neighbor not in visited:
-                    h_score = min(manhattan_distance(neighbor, goal) for goal in goals)  # Only heuristic, no g-score
-                    heapq.heappush(queue, (h_score, neighbor, path + [neighbor]))
-
-        if found_goal:
-            goals.remove(found_goal)  # Remove the reached goal
-            full_path.append(found_goal)  # Ensure goal is included in the path
-        else:
-            return []  # If a goal is unreachable, return failure
-
-    return full_path
